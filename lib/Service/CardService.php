@@ -40,6 +40,7 @@ class CardService {
 	private StackMapper $stackMapper;
 	private BoardMapper $boardMapper;
 	private LabelMapper $labelMapper;
+	private LabelService $labelService;
 	private PermissionService $permissionService;
 	private BoardService $boardService;
 	private NotificationHelper $notificationHelper;
@@ -61,6 +62,7 @@ class CardService {
 		StackMapper $stackMapper,
 		BoardMapper $boardMapper,
 		LabelMapper $labelMapper,
+		LabelService $labelService,
 		PermissionService $permissionService,
 		BoardService $boardService,
 		NotificationHelper $notificationHelper,
@@ -81,6 +83,7 @@ class CardService {
 		$this->stackMapper = $stackMapper;
 		$this->boardMapper = $boardMapper;
 		$this->labelMapper = $labelMapper;
+		$this->labelService = $labelService;
 		$this->permissionService = $permissionService;
 		$this->boardService = $boardService;
 		$this->notificationHelper = $notificationHelper;
@@ -351,6 +354,29 @@ class CardService {
 
 
 		$card = $this->cardMapper->update($card);
+
+		$stack = $this->stackMapper->find($card->getStackId());
+		$board = $this->boardService->find($stack->getBoardId());
+		$boardLabels = $board->getLabels();
+		if ($boardLabels == null) {
+			$boardLabels = [];
+		}
+		foreach($card->getLabels() as $cardLabel) {
+			$this->removeLabel($card->getId(), $cardLabel->getId());
+			$label = $this->labelMapper->find($cardLabel->getId());
+			$filteredLabels = array_values(array_filter($boardLabels, fn ($item) => $item->getTitle() === $label->getTitle()));
+			// clone labels that are assigned to card but don't exist in new board 
+			if (empty($filteredLabels)) {
+				$newLabel = $this->labelService->create($label->getTitle(), $label->getColor(), $board->getId());
+				$boardLabels[] = $label;
+				$this->assignLabel($card->getId(), $newLabel->getId());
+			} else {
+				$this->assignLabel($card->getId(), $filteredLabels[0]->getId());
+			}
+		}
+		$board->setLabels($boardLabels);
+		$this->boardMapper->update($board);
+
 		if ($resetDuedateNotification) {
 			$this->notificationHelper->markDuedateAsRead($card);
 		}
